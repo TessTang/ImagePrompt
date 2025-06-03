@@ -31,11 +31,6 @@ const nextConfig: NextConfig = {
 
   // 確保路徑正確處理
   trailingSlash: true,
-
-  // 禁用 server-side features
-  experimental: {
-    esmExternals: false,
-  },
 };
 
 export default nextConfig;
