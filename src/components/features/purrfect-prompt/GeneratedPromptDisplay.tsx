@@ -53,7 +53,7 @@ export function GeneratedPromptDisplay({ prompt }: GeneratedPromptDisplayProps) 
       <CardHeader>
          <CardTitle className="text-xl font-headline flex items-center justify-between">
           <Image 
-            src="/images/cat-paw-title.png" 
+            src="./images/cat-paw-title.png"
             alt="貓掌"
             width={40}
             height={40}
