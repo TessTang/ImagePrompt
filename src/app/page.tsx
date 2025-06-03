@@ -1,9 +1,10 @@
 
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, FormEvent } from "react";
 import { Button } from "@/components/ui/button";
-import { PlusCircle, Cat, AlertTriangle, PanelLeftClose, PanelRightOpen } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { PlusCircle, Cat, AlertTriangle, PanelLeftClose, PanelRightOpen, KeyRound, Loader2 } from "lucide-react";
 import { useTags } from "@/hooks/useTags";
 import type { Tag } from "@/types";
 import { CreateTagDialog } from "@/components/features/purrfect-prompt/CreateTagDialog";
@@ -17,10 +18,25 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ScrollToBottomButton } from "@/components/ScrollToBottomButton";
+import { verifyPasscode } from "@/services/passcodeService"; // Import the new service
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 
+
+const PASSCODE_STORAGE_KEY = "purrfectPromptPasscodeVerified";
 
 export default function PurrfectPromptPage() {
-  const { tags, isLoading: isLoadingFromHook, error, addTag, updateTag, deleteTag, updateTagOrders } = useTags();
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [enteredPasscode, setEnteredPasscode] = useState("");
+  const [isVerifyingPasscode, setIsVerifyingPasscode] = useState(false);
+  const [passcodeError, setPasscodeError] = useState<string | null>(null);
+  const [initialAuthCheckDone, setInitialAuthCheckDone] = useState(false);
+
+
+  const { tags, isLoading: isLoadingTags, error: tagsError, addTag, updateTag, deleteTag, updateTagOrders } = useTags({
+    // Disable tag fetching until authenticated
+    enabled: isAuthenticated 
+  });
+  
   const [selectedTagIds, setSelectedTagIds] = useState<Set<string>>(new Set());
   const [generatedPrompt, setGeneratedPrompt] = useState<string>("");
 
@@ -33,15 +49,33 @@ export default function PurrfectPromptPage() {
 
   const [isTagSectionCollapsed, setIsTagSectionCollapsed] = useState(false);
 
+  // Check localStorage for persisted authentication status on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const storedAuthStatus = localStorage.getItem(PASSCODE_STORAGE_KEY);
+      if (storedAuthStatus === "true") {
+        setIsAuthenticated(true);
+      }
+    }
+    setInitialAuthCheckDone(true);
+  }, []);
+
+
   const sortedTags = useMemo(() => {
+    if (!isAuthenticated) return [];
     return [...tags].sort((a, b) => a.order - b.order);
-  }, [tags]);
+  }, [tags, isAuthenticated]);
   
   const tagsForSelectedList = useMemo(() => {
+    if (!isAuthenticated) return [];
     return sortedTags.filter(tag => selectedTagIds.has(tag.id));
-  }, [selectedTagIds, sortedTags]);
+  }, [selectedTagIds, sortedTags, isAuthenticated]);
 
   useEffect(() => {
+    if (!isAuthenticated) {
+      setGeneratedPrompt("");
+      return;
+    }
     const newPrompt = tagsForSelectedList.reduce((acc, tag) => {
       const currentContent = tag.content.trim();
       if (currentContent === "") return acc;
@@ -59,14 +93,30 @@ export default function PurrfectPromptPage() {
       }
     }, "");
     setGeneratedPrompt(newPrompt);
-  }, [tagsForSelectedList]);
+  }, [tagsForSelectedList, isAuthenticated]);
 
 
   useEffect(() => {
-    if (error) {
-      console.error("載入標籤時發生錯誤:", error);
+    if (tagsError) {
+      console.error("載入標籤時發生錯誤:", tagsError);
     }
-  }, [error]);
+  }, [tagsError]);
+
+  const handlePasscodeSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setIsVerifyingPasscode(true);
+    setPasscodeError(null);
+    const isValid = await verifyPasscode(enteredPasscode);
+    if (isValid) {
+      setIsAuthenticated(true);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(PASSCODE_STORAGE_KEY, "true");
+      }
+    } else {
+      setPasscodeError("通關密碼錯誤，請再試一次。");
+    }
+    setIsVerifyingPasscode(false);
+  };
 
 
   const handleSelectTag = (tagId: string, selected: boolean) => {
@@ -164,7 +214,64 @@ export default function PurrfectPromptPage() {
     handleSelectTag(tagId, false);
   };
   
-  const isLoading = isLoadingFromHook;
+  const isLoading = isLoadingTags || isVerifyingPasscode;
+
+  if (!initialAuthCheckDone) {
+    return (
+      <div className="flex flex-col min-h-screen bg-background">
+        <AppHeader />
+        <div className="flex-grow flex items-center justify-center">
+          <Loader2 className="h-12 w-12 animate-spin text-primary" />
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="flex flex-col min-h-screen bg-background">
+        <AppHeader />
+        <main className="flex-grow flex items-center justify-center p-4">
+          <Card className="w-full max-w-sm shadow-xl">
+            <CardHeader>
+              <CardTitle className="text-2xl font-headline text-center flex items-center justify-center">
+                <KeyRound className="mr-2 h-6 w-6 text-primary" />
+                請輸入通關密碼
+              </CardTitle>
+              <CardDescription className="text-center">
+                請輸入通關密碼以存取喵喵提示詞產生器。
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handlePasscodeSubmit} className="space-y-4">
+                <Input
+                  type="password"
+                  placeholder="通關密碼"
+                  value={enteredPasscode}
+                  onChange={(e) => setEnteredPasscode(e.target.value)}
+                  disabled={isVerifyingPasscode}
+                  aria-label="通關密碼"
+                />
+                {passcodeError && (
+                  <p className="text-sm text-destructive">{passcodeError}</p>
+                )}
+                <Button type="submit" className="w-full" disabled={isVerifyingPasscode || !enteredPasscode}>
+                  {isVerifyingPasscode ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      驗證中...
+                    </>
+                  ) : (
+                    "進入"
+                  )}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col min-h-screen bg-background">
@@ -208,13 +315,13 @@ export default function PurrfectPromptPage() {
 
             {!isTagSectionCollapsed && (
               <>
-                {error && (
+                {tagsError && (
                   <Alert variant="destructive" className="mb-6">
                     <AlertTriangle className="h-4 w-4" />
                     <AlertTitle>載入標籤時發生錯誤</AlertTitle>
                     <AlertDescription>
                       無法載入您的標籤。請檢查您的 Firestore 安全性規則和網路連線。
-                      訊息：{(error as Error)?.message || '未知錯誤'}
+                      訊息：{(tagsError as Error)?.message || '未知錯誤'}
                     </AlertDescription>
                   </Alert>
                 )}
@@ -225,7 +332,7 @@ export default function PurrfectPromptPage() {
                   onEditTag={openEditModal}
                   onDeleteTag={openDeleteConfirm}
                   onReorderTags={handleReorderAllTags}
-                  isLoading={isLoading}
+                  isLoading={isLoadingTags}
                 />
               </>
             )}
@@ -249,7 +356,7 @@ export default function PurrfectPromptPage() {
         isOpen={isCreateModalOpen}
         onOpenChange={setIsCreateModalOpen}
         onSubmit={handleCreateTag}
-        isLoading={isLoading} 
+        isLoading={isLoadingTags} 
       />
       {editingTag && (
         <EditTagDialog
@@ -257,7 +364,7 @@ export default function PurrfectPromptPage() {
           onOpenChange={setIsEditModalOpen}
           onSubmit={handleEditTag}
           tag={editingTag}
-          isLoading={isLoading}
+          isLoading={isLoadingTags}
         />
       )}
       

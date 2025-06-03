@@ -1,13 +1,11 @@
-
-import type { Timestamp } from 'firebase/firestore';
+import type { Timestamp } from "firebase/firestore";
 
 export interface Tag {
   id: string;
   category: string;
-  name: string; // Changed from title to name
+  name: string;
   content: string;
   order: number;
-  userId: string;
-  createdAt: Timestamp | Date; // Allow both for local creation and Firestore data
-  // Add any other fields if necessary
+  // userId: string; // No longer user-specific for passcode auth
+  createdAt: Timestamp | Date;
 }
