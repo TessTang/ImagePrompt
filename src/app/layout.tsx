@@ -9,8 +9,8 @@ export const metadata: Metadata = {
   description: '輕鬆打造你的完美提示詞！',
   viewport: 'width=device-width, initial-scale=1, viewport-fit=cover',
     icons: {
-    icon: '/favicon.png',
-    shortcut: '/favicon.png',
+    icon: './images/favicon.png',
+    shortcut: './images/favicon.png',
   },
   appleWebApp: {
     capable: true,
