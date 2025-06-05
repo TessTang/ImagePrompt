@@ -4,7 +4,7 @@
 import { useState, useEffect, useMemo, FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { PlusCircle, Cat, AlertTriangle, PanelLeftClose, PanelRightOpen, KeyRound, Loader2 } from "lucide-react";
+import { PlusCircle, Cat, AlertTriangle, PanelLeftClose, PanelRightOpen, KeyRound, Loader2, ArrowUpDown, X, Pencil, Trash2 } from "lucide-react";
 import { useTags } from "@/hooks/useTags";
 import type { Tag } from "@/types";
 import { CreateTagDialog } from "@/components/features/purrfect-prompt/CreateTagDialog";
@@ -18,11 +18,21 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ScrollToBottomButton } from "@/components/ScrollToBottomButton";
-import { verifyPasscode } from "@/services/passcodeService"; // Import the new service
+import { verifyPasscode } from "@/services/passcodeService"; 
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
+type SortableField = 'category' | 'name' | 'order';
+type SortDirection = 'asc' | 'desc';
 
 const PASSCODE_STORAGE_KEY = "purrfectPromptPasscodeVerified";
+const ALL_CATEGORIES_ITEM_VALUE = "__ALL_CATEGORIES_SENTINEL__";
 
 export default function PurrfectPromptPage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -31,9 +41,7 @@ export default function PurrfectPromptPage() {
   const [passcodeError, setPasscodeError] = useState<string | null>(null);
   const [initialAuthCheckDone, setInitialAuthCheckDone] = useState(false);
 
-
-  const { tags, isLoading: isLoadingTags, error: tagsError, addTag, updateTag, deleteTag, updateTagOrders } = useTags({
-    // Disable tag fetching until authenticated
+  const { tags, isLoading: isLoadingTagsDb, error: tagsError, addTag, updateTag, deleteTag, updateTagOrders } = useTags({
     enabled: isAuthenticated 
   });
   
@@ -49,7 +57,11 @@ export default function PurrfectPromptPage() {
 
   const [isTagSectionCollapsed, setIsTagSectionCollapsed] = useState(false);
 
-  // Check localStorage for persisted authentication status on mount
+  const [filterText, setFilterText] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string>(ALL_CATEGORIES_ITEM_VALUE);
+  const [sortBy, setSortBy] = useState<SortableField>('order');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const storedAuthStatus = localStorage.getItem(PASSCODE_STORAGE_KEY);
@@ -60,16 +72,66 @@ export default function PurrfectPromptPage() {
     setInitialAuthCheckDone(true);
   }, []);
 
-
-  const sortedTags = useMemo(() => {
-    if (!isAuthenticated) return [];
-    return [...tags].sort((a, b) => a.order - b.order);
+  const uniqueCategories = useMemo(() => {
+    if (!isAuthenticated) return [ALL_CATEGORIES_ITEM_VALUE];
+    const categories = new Set<string>();
+    tags.forEach(tag => {
+      if (tag.category && tag.category.trim() !== '') {
+        categories.add(tag.category);
+      }
+    });
+    const sortedCategories = Array.from(categories).sort((a, b) => a.localeCompare(b));
+    return [ALL_CATEGORIES_ITEM_VALUE, ...sortedCategories];
   }, [tags, isAuthenticated]);
+
+  const displayedTags = useMemo(() => {
+    if (!isAuthenticated) return [];
+    let displayTags = [...tags];
+
+    if (selectedCategory && selectedCategory !== ALL_CATEGORIES_ITEM_VALUE) { 
+      displayTags = displayTags.filter(tag => tag.category === selectedCategory);
+    }
+
+    if (filterText) {
+      const lowerFilterText = filterText.toLowerCase();
+      displayTags = displayTags.filter(tag =>
+        (tag.category?.toLowerCase() || '').includes(lowerFilterText) ||
+        (tag.name?.toLowerCase() || '').includes(lowerFilterText) ||
+        (tag.content?.toLowerCase() || '').includes(lowerFilterText)
+      );
+    }
+
+    if (sortBy) {
+      displayTags.sort((a, b) => {
+        let valA = a[sortBy];
+        let valB = b[sortBy];
+
+        if (typeof valA === 'string') valA = valA.toLowerCase();
+        if (typeof valB === 'string') valB = valB.toLowerCase();
+        
+        if (sortBy === 'order') {
+            valA = a.order;
+            valB = b.order;
+        }
+
+        if (valA < valB) return sortDirection === 'asc' ? -1 : 1;
+        if (valA > valB) return sortDirection === 'asc' ? 1 : -1;
+        
+        const nameA = (a.name || '').toLowerCase();
+        const nameB = (b.name || '').toLowerCase();
+        if (nameA < nameB) return -1;
+        if (nameA > nameB) return 1;
+        return 0;
+      });
+    }
+    return displayTags;
+  }, [tags, filterText, selectedCategory, sortBy, sortDirection, isAuthenticated]);
   
   const tagsForSelectedList = useMemo(() => {
     if (!isAuthenticated) return [];
-    return sortedTags.filter(tag => selectedTagIds.has(tag.id));
-  }, [selectedTagIds, sortedTags, isAuthenticated]);
+     const selectedMap = new Map(tags.filter(tag => selectedTagIds.has(tag.id)).map(tag => [tag.id, tag]));
+     return Array.from(selectedTagIds).map(id => selectedMap.get(id)).filter(Boolean) as Tag[];
+  }, [selectedTagIds, tags, isAuthenticated]);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -177,59 +239,49 @@ export default function PurrfectPromptPage() {
   const handleReorderAllTags = (reorderedAllTags: Tag[]) => {
     const updates = reorderedAllTags.map((tag, index) => ({ id: tag.id, order: index }));
     updateTagOrders(updates);
+    setSortBy('order'); 
+    setSortDirection('asc');
   };
 
   const handleReorderSelectedTags = (newlyOrderedSelectedTags: Tag[]) => {
-    const currentGlobalTags = [...sortedTags];
-    const newGlobalOrderArray: Tag[] = [];
-
-    const selectedIter = newlyOrderedSelectedTags[Symbol.iterator]();
-    const unselectedTagsOrdered = currentGlobalTags.filter(t => !selectedTagIds.has(t.id)); 
-    const unselectedIter = unselectedTagsOrdered[Symbol.iterator]();
-
-    for (const originalTagInSlot of currentGlobalTags) {
-      if (selectedTagIds.has(originalTagInSlot.id)) {
-        const nextSelected = selectedIter.next();
-        if (!nextSelected.done) {
-          newGlobalOrderArray.push(nextSelected.value);
-        }
-      } else {
-        const nextUnselected = unselectedIter.next();
-        if (!nextUnselected.done) {
-          newGlobalOrderArray.push(nextUnselected.value);
-        }
-      }
-    }
-    
-    if (newGlobalOrderArray.length !== currentGlobalTags.length) {
-        console.error("重新排序錯誤：陣列長度不符。為安全起見，回復至原始順序。");
-        return;
-    }
-
-    const updates = newGlobalOrderArray.map((tag, index) => ({ id: tag.id, order: index }));
-    updateTagOrders(updates);
+    setSelectedTagIds(new Set(newlyOrderedSelectedTags.map(tag => tag.id)));
   };
 
   const handleRemoveFromSelected = (tagId: string) => {
     handleSelectTag(tagId, false);
   };
   
-  const isLoading = isLoadingTags || isVerifyingPasscode;
+  const handleSort = (field: SortableField) => {
+    const newDirection = sortBy === field && sortDirection === 'asc' ? 'desc' : 'asc';
+    setSortBy(field);
+    setSortDirection(newDirection);
+  };
+
+  const renderSortIcon = (field: SortableField) => {
+    if (sortBy === field) {
+      return sortDirection === 'asc' ? <ArrowUpDown className="h-4 w-4 inline ml-1 transform rotate-0" /> : <ArrowUpDown className="h-4 w-4 inline ml-1 transform rotate-180" />;
+    }
+    return <ArrowUpDown className="h-4 w-4 inline ml-1 opacity-30" />;
+  };
+  
+  const columnHeaderButtonClass = "font-medium text-sm text-muted-foreground hover:text-foreground px-1 py-1 rounded-md w-full text-left flex items-center justify-start";
+
+  const isLoading = isLoadingTagsDb || isVerifyingPasscode;
 
   if (!initialAuthCheckDone) {
     return (
-      <div className="flex flex-col min-h-screen bg-background">
+      <div className="flex flex-col flex-1 bg-background">
         <AppHeader />
-        <div className="flex-grow flex items-center justify-center">
+        <main className="flex-grow flex items-center justify-center p-4">
           <Loader2 className="h-12 w-12 animate-spin text-primary" />
-        </div>
+        </main>
       </div>
     );
   }
 
   if (!isAuthenticated) {
     return (
-      <div className="flex flex-col min-h-screen bg-background">
+      <div className="flex flex-col flex-1 bg-background">
         <AppHeader />
         <main className="flex-grow flex items-center justify-center p-4">
           <Card className="w-full max-w-sm shadow-xl">
@@ -274,13 +326,13 @@ export default function PurrfectPromptPage() {
   }
 
   return (
-    <div className="flex flex-col min-h-screen bg-background">
+    <div className="flex flex-col flex-1 bg-background">
       <AppHeader />
-      <main className="container mx-auto p-4 sm:p-6 lg:p-8 flex-grow w-full">
+      <main className={`flex-1 w-full grid ${isTagSectionCollapsed ? 'lg:grid-cols-[min-content_1fr]' : 'lg:grid-cols-2'} gap-x-8 lg:gap-x-8`}>
         
-        <div className={`grid grid-cols-1 ${isTagSectionCollapsed ? 'lg:grid-cols-[min-content_1fr]' : 'lg:grid-cols-2'} gap-x-8 gap-y-8`}>
-          <section className="space-y-6">
-            <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+        <section className={`p-4 sm:p-6 lg:p-8 flex flex-col min-h-0 ${isTagSectionCollapsed ? 'lg:col-span-1' : 'lg:col-span-1'}`}>
+          <div className={`lg:sticky lg:top-0 lg:z-20 bg-background ${isTagSectionCollapsed ? 'pb-0' : 'pb-4'}`}>
+            <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
               <div className="flex items-center">
                 <Button
                   variant="ghost"
@@ -315,48 +367,130 @@ export default function PurrfectPromptPage() {
 
             {!isTagSectionCollapsed && (
               <>
-                {tagsError && (
-                  <Alert variant="destructive" className="mb-6">
-                    <AlertTriangle className="h-4 w-4" />
-                    <AlertTitle>載入標籤時發生錯誤</AlertTitle>
-                    <AlertDescription>
-                      無法載入您的標籤。請檢查您的 Firestore 安全性規則和網路連線。
-                      訊息：{(tagsError as Error)?.message || '未知錯誤'}
-                    </AlertDescription>
-                  </Alert>
-                )}
-                <TagList
-                  tags={sortedTags}
-                  selectedTagIds={selectedTagIds}
-                  onSelectTag={handleSelectTag}
-                  onEditTag={openEditModal}
-                  onDeleteTag={openDeleteConfirm}
-                  onReorderTags={handleReorderAllTags}
-                  isLoading={isLoadingTags}
-                />
+                <div className="flex flex-col sm:flex-row gap-3 mb-3 pt-1">
+                  <div className="flex items-center gap-1 w-full sm:w-auto">
+                    <div className="flex-grow sm:min-w-[180px] md:min-w-[200px]">
+                      <Select
+                        value={selectedCategory}
+                        onValueChange={setSelectedCategory}
+                        disabled={isLoading || uniqueCategories.length <= 1}
+                      >
+                        <SelectTrigger className="shadow-sm w-full">
+                          <SelectValue placeholder="依標籤類別篩選..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {uniqueCategories.map(categoryValue => {
+                            const isAllCategoriesOption = categoryValue === ALL_CATEGORIES_ITEM_VALUE;
+                            const itemDisplay = isAllCategoriesOption ? '所有類別' : categoryValue;
+                            return (
+                              <SelectItem key={categoryValue} value={categoryValue}>
+                                {itemDisplay}
+                              </SelectItem>
+                            );
+                          })}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {!isLoading && selectedCategory && selectedCategory !== ALL_CATEGORIES_ITEM_VALUE && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-10 w-10 p-0 text-muted-foreground hover:text-foreground flex-shrink-0"
+                        onClick={() => setSelectedCategory(ALL_CATEGORIES_ITEM_VALUE)}
+                        aria-label="清除類別篩選"
+                      >
+                        <X size={18} />
+                      </Button>
+                    )}
+                  </div>
+                  
+                  <div className="relative flex-grow">
+                    <Input
+                      placeholder="依標籤類別、名稱或內容搜尋..."
+                      value={filterText}
+                      onChange={(e) => setFilterText(e.target.value)}
+                      className="shadow-sm w-full pr-10" 
+                      disabled={isLoading}
+                    />
+                    {!isLoading && filterText && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-1 top-1/2 transform -translate-y-1/2 h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+                        onClick={() => setFilterText('')}
+                        aria-label="清除搜尋文字"
+                      >
+                        <X size={18} />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                {/* Column Headers for TagList - now part of the sticky block */}
+                <div className="flex items-center p-3 space-x-2 rounded-md shadow-sm bg-muted/30">
+                  <div className="flex items-center">
+                    {/* Placeholder for checkbox alignment, invisible */}
+                    <div className="w-4 h-4 mr-2" /> 
+                  </div>
+                  <div className="flex-1 grid grid-cols-2 gap-x-3 items-center min-w-0">
+                      <Button variant="ghost" onClick={() => handleSort('category')} className={columnHeaderButtonClass}>
+                        標籤類別 {renderSortIcon('category')}
+                      </Button>
+                      <Button variant="ghost" onClick={() => handleSort('name')} className={columnHeaderButtonClass}>
+                        提示詞名稱 {renderSortIcon('name')}
+                      </Button>
+                  </div>
+                  <div className="flex items-center space-x-1 invisible"> {/* Placeholder for actions */}
+                    <Button variant="ghost" size="icon"><Pencil size={18} /></Button>
+                    <Button variant="ghost" size="icon"><Trash2 size={18} /></Button>
+                  </div>
+                </div>
               </>
             )}
-          </section>
-
-          <section className="space-y-6 sticky top-24 self-start">
-            <div>
-              <h3 className="text-2xl font-headline text-primary mb-3">已選標籤</h3>
-              <SelectedTagList 
-                selectedTags={tagsForSelectedList}
-                onReorderSelected={handleReorderSelectedTags}
-                onRemoveTag={handleRemoveFromSelected}
+          </div> {/* End of sticky block */}
+          
+          {!isTagSectionCollapsed && (
+            <div className="flex-grow min-h-0"> {/* This div makes TagList scrollable and fill remaining space */}
+              {tagsError && (
+                <Alert variant="destructive" className="mb-6">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertTitle>載入標籤時發生錯誤</AlertTitle>
+                  <AlertDescription>
+                    無法載入您的標籤。請檢查您的 Firestore 安全性規則和網路連線。
+                    訊息：{(tagsError as Error)?.message || '未知錯誤'}
+                  </AlertDescription>
+                </Alert>
+              )}
+              <TagList
+                tags={displayedTags}
+                selectedTagIds={selectedTagIds}
+                onSelectTag={handleSelectTag}
+                onEditTag={openEditModal}
+                onDeleteTag={openDeleteConfirm}
+                onReorderTags={handleReorderAllTags}
+                isLoading={isLoadingTagsDb}
               />
             </div>
-            <GeneratedPromptDisplay prompt={generatedPrompt} />
-          </section>
-        </div>
+          )}
+        </section>
+
+        <section className="space-y-6 sticky top-24 self-start lg:col-span-1 p-4 sm:p-6 lg:p-8">
+          <div>
+            <h3 className="text-2xl font-headline text-primary mb-3">已選標籤</h3>
+            <SelectedTagList 
+              selectedTags={tagsForSelectedList}
+              onReorderSelected={handleReorderSelectedTags}
+              onRemoveTag={handleRemoveFromSelected}
+            />
+          </div>
+          <GeneratedPromptDisplay prompt={generatedPrompt} />
+        </section>
       </main>
 
       <CreateTagDialog
         isOpen={isCreateModalOpen}
         onOpenChange={setIsCreateModalOpen}
         onSubmit={handleCreateTag}
-        isLoading={isLoadingTags} 
+        isLoading={isLoadingTagsDb} 
       />
       {editingTag && (
         <EditTagDialog
@@ -364,7 +498,7 @@ export default function PurrfectPromptPage() {
           onOpenChange={setIsEditModalOpen}
           onSubmit={handleEditTag}
           tag={editingTag}
-          isLoading={isLoadingTags}
+          isLoading={isLoadingTagsDb}
         />
       )}
       
@@ -397,3 +531,5 @@ export default function PurrfectPromptPage() {
     </div>
   );
 }
+
+    

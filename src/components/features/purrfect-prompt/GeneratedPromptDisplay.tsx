@@ -14,15 +14,17 @@ interface GeneratedPromptDisplayProps {
 }
 
 export function GeneratedPromptDisplay({ prompt }: GeneratedPromptDisplayProps) {
+  const [editablePrompt, setEditablePrompt] = useState(prompt);
   const [isCopied, setIsCopied] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
-    setIsCopied(false);
+    setEditablePrompt(prompt);
+    setIsCopied(false); // Reset copied state when prompt prop changes
   }, [prompt]);
 
   const handleCopy = async () => {
-    if (!prompt) {
+    if (!editablePrompt) {
       toast({
         variant: "destructive",
         title: "沒有內容可複製",
@@ -31,7 +33,7 @@ export function GeneratedPromptDisplay({ prompt }: GeneratedPromptDisplayProps) 
       return;
     }
     try {
-      await navigator.clipboard.writeText(prompt);
+      await navigator.clipboard.writeText(editablePrompt);
       setIsCopied(true);
       toast({
         title: "已複製到剪貼簿！",
@@ -48,12 +50,16 @@ export function GeneratedPromptDisplay({ prompt }: GeneratedPromptDisplayProps) 
     }
   };
 
+  const handleChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setEditablePrompt(event.target.value);
+  };
+
   return (
     <Card className="shadow-lg">
       <CardHeader>
          <CardTitle className="text-xl font-headline flex items-center justify-between">
           <Image 
-            src="./images/cat-paw-title.png"
+            src="./images/cat-paw-title.png" 
             alt="貓掌"
             width={40}
             height={40}
@@ -68,16 +74,16 @@ export function GeneratedPromptDisplay({ prompt }: GeneratedPromptDisplayProps) 
       <CardContent>
         <div className="relative">
           <Textarea
-            readOnly
-            value={prompt}
-            placeholder="選擇標籤以在此處產生提示詞..."
+            value={editablePrompt}
+            onChange={handleChange}
+            placeholder="選擇標籤以在此處產生提示詞，或直接在此編輯..."
             className="min-h-[200px] w-full p-3 rounded-md bg-muted/50 font-code text-sm shadow-inner"
             aria-label="Generated Prompt Text"
           />
         </div>
-        {prompt && (
+        {editablePrompt && (
           <p className="mt-2 text-xs text-muted-foreground">
-            提示詞長度：{prompt.length} 個字元
+            提示詞長度：{editablePrompt.length} 個字元
           </p>
         )}
       </CardContent>

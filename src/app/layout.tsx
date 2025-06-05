@@ -1,5 +1,5 @@
 
-import type { Metadata } from 'next';
+import type { Metadata,Viewport } from 'next';
 import { Providers } from '@/components/providers';
 import { Toaster } from "@/components/ui/toaster";
 import './globals.css';
@@ -19,6 +19,12 @@ export const metadata: Metadata = {
   },
 };
 
+// 修正 viewport 設定為獨立導出
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover'
+};
 export default function RootLayout({
   children,
 }: Readonly<{
